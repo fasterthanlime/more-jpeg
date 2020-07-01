@@ -1,0 +1,22 @@
+{
+  "name": "more-jpeg",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fasterthanlime/more-jpeg.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/fasterthanlime/more-jpeg/issues"
+  },
+  "homepage": "https://github.com/fasterthanlime/more-jpeg#readme",
+  "devDependencies": {
+    "typescript": "^3.9.5"
+  }
+}

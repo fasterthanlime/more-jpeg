@@ -1,6 +1,6 @@
 use async_std::fs::read_to_string;
 use liquid::{Object, Template};
-use std::{collections::HashMap, error::Error, str::FromStr};
+use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
 
 struct State {
@@ -14,23 +14,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     pretty_env_logger::init();
 
-    let templates = compile_templates(&["./templates/index.html.liquid"]).await?;
+    let templates = compile_templates(&[
+        "./templates/index.html.liquid",
+        "./templates/style.css.liquid",
+        "./templates/main.js.liquid",
+    ])
+    .await?;
     log::info!("{} templates compiled", templates.len());
 
     let mut app = tide::with_state(State { templates });
+
     app.at("/").get(|req: Request<State>| async move {
-        log::info!("Serving /");
-        let name = "index.html";
-        serve_template(&req.state().templates, name)
+        serve_template(&req.state().templates, "index.html", mimes::html())
             .await
-            .map_err(|e| {
-                log::error!("While serving template: {}", e);
-                tide::Error::from_str(
-                    StatusCode::InternalServerError,
-                    "Something went wrong, sorry!",
-                )
-            })
+            .for_tide()
     });
+
+    app.at("/style.css").get(|req: Request<State>| async move {
+        serve_template(&req.state().templates, "style.css", mimes::css())
+            .await
+            .for_tide()
+    });
+
+    app.at("/main.js").get(|req: Request<State>| async move {
+        serve_template(&req.state().templates, "style.js", mimes::js())
+            .await
+            .for_tide()
+    });
+
     app.listen("localhost:3000").await?;
     Ok(())
 }
@@ -62,14 +73,51 @@ async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>
     Ok(map)
 }
 
-async fn serve_template(templates: &TemplateMap, name: &str) -> Result<Response, Box<dyn Error>> {
+trait ForTide {
+    fn for_tide(self) -> Result<tide::Response, tide::Error>;
+}
+
+impl ForTide for Result<tide::Response, Box<dyn Error>> {
+    fn for_tide(self) -> Result<Response, tide::Error> {
+        self.map_err(|e| {
+            log::error!("While serving template: {}", e);
+            tide::Error::from_str(
+                StatusCode::InternalServerError,
+                "Something went wrong, sorry!",
+            )
+        })
+    }
+}
+
+mod mimes {
+    use std::str::FromStr;
+    use tide::http::Mime;
+
+    pub(crate) fn html() -> Mime {
+        Mime::from_str("text/html; charset=utf-8").unwrap()
+    }
+
+    pub(crate) fn css() -> Mime {
+        Mime::from_str("text/css; charset=utf-8").unwrap()
+    }
+
+    pub(crate) fn js() -> Mime {
+        Mime::from_str("text/javascript; charset=utf-8").unwrap()
+    }
+}
+
+async fn serve_template(
+    templates: &TemplateMap,
+    name: &str,
+    mime: Mime,
+) -> Result<Response, Box<dyn Error>> {
     let template = templates
         .get(name)
         .ok_or_else(|| TemplateError::TemplateNotFound(name.to_string()))?;
     let globals: Object = Default::default();
     let markup = template.render(&globals)?;
     let mut res = Response::new(StatusCode::Ok);
-    res.set_content_type(Mime::from_str("text/html; charset=utf-8").unwrap());
+    res.set_content_type(mime);
     res.set_body(markup);
     Ok(res)
 }
