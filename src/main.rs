@@ -36,13 +36,16 @@ impl BitCrush for DynamicImage {
     fn bitcrush(self) -> Result<Self, Self::Error> {
         let mut current = self;
         let (orig_w, orig_h) = current.dimensions();
-        let (trans_w, trans_h) = (orig_w + 10, orig_h + 10);
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+        let (trans_w, trans_h) = (
+            orig_w + rng.gen_range(1, orig_w),
+            orig_h + rng.gen_range(1, orig_h),
+        );
 
         let mut out: Vec<u8> = Default::default();
-        for _ in 0..4 {
-            current = current
-                .resize_exact(trans_w, trans_h, FilterType::Nearest)
-                .rotate90();
+        for _ in 0..1 {
+            current = current.resize_exact(trans_w, trans_h, FilterType::Nearest);
             out.clear();
             {
                 let mut encoder = JPEGEncoder::new_with_quality(&mut out, JPEG_QUALITY);
