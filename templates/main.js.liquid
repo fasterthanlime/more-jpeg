@@ -7,6 +7,8 @@
     let dropZone = document.querySelector("#drop-zone");
     /** @type {HTMLParagraphElement} */
     let status = document.querySelector("#status");
+    /** @type {HTMLInputElement} */
+    let autoclick = document.querySelector("#autoclick");
     /** @type {HTMLSpanElement} */
     let instructions = document.querySelector("#instructions");
     let spinner = document.createElement("div");
@@ -18,6 +20,15 @@
     let showErrorDialog = (e) => {
       alert(`Something went wrong!\n\n${e}\n\n${e.stack}`);
     };
+
+    autoclick.addEventListener("change", (ev) => {
+      if (autoclick.checked) {
+        let img = dropZone.querySelector("img");
+        if (img) {
+          img.click();
+        }
+      }
+    })
 
     /** @param {BodyInit} body */
     let bitcrush = (body) => {
@@ -45,6 +56,10 @@
 
               dropZone.innerHTML = "";
               dropZone.appendChild(img);
+
+              if (autoclick.checked) {
+                img.click();
+              }
             });
           });
         })

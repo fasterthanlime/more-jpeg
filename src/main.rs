@@ -22,7 +22,7 @@ struct State {
     images: RwLock<HashMap<Ulid, Image>>,
 }
 
-pub const JPEG_QUALITY: u8 = 25;
+pub const JPEG_QUALITY: u8 = 35;
 
 trait BitCrush: Sized {
     type Error;
@@ -39,20 +39,24 @@ impl BitCrush for DynamicImage {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let (trans_w, trans_h) = (
-            orig_w + rng.gen_range(1, orig_w),
-            orig_h + rng.gen_range(1, orig_h),
+            orig_w + rng.gen_range(orig_w / 2, orig_w),
+            orig_h + rng.gen_range(orig_h / 2, orig_h),
         );
 
         let mut out: Vec<u8> = Default::default();
-        for _ in 0..1 {
-            current = current.resize_exact(trans_w, trans_h, FilterType::Nearest);
+        for _ in 0..2 {
+            current = current
+                .resize_exact(trans_w, trans_h, FilterType::Nearest)
+                .rotate180()
+                .huerotate(180);
             out.clear();
             {
                 let mut encoder = JPEGEncoder::new_with_quality(&mut out, JPEG_QUALITY);
                 encoder.encode_image(&current)?;
             }
-            current = image::load_from_memory_with_format(&out[..], image::ImageFormat::Jpeg)?
-                .resize_exact(orig_w, orig_h, FilterType::Triangle)
+            current = image::load_from_memory_with_format(&out[..], image::ImageFormat::Jpeg)?;
+            current = current
+                .resize_exact(orig_w, orig_h, FilterType::Nearest)
                 .brighten(2);
         }
         Ok(current)
