@@ -52,7 +52,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     app.at("/upload")
         .post(|mut req: Request<State>| async move {
             let body = req.body_bytes().await?;
-            let payload = base64::encode(body);
+            let img = image::load_from_memory(&body[..])?;
+            let mut output: Vec<u8> = Default::default();
+            let mut encoder = image::jpeg::JPEGEncoder::new_with_quality(&mut output, 90);
+            encoder.encode_image(&img)?;
+
+            let payload = base64::encode(output);
             let src = format!("data:image/jpeg;base64,{}", payload);
 
             let mut res = Response::new(StatusCode::Ok);
