@@ -8,7 +8,6 @@ edition = "2018"
 opt-level = 2
 
 [dependencies]
-tide = "0.11.0"
 liquid = "0.20.1"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"
@@ -21,3 +20,5 @@ rand = "0.7.3"
 tokio = { version = "0.2.21", features = ["sync", "rt-core", "rt-util", "rt-threaded", "macros", "fs"] }
 warp = "0.2.3"
 http = "0.2.1"
+bytes = "0.5.5"
+http-types = "2.2.1"

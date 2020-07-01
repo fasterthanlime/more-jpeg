@@ -1,13 +1,14 @@
+use http_types::Mime;
 use liquid::{Object, Template};
-use std::{collections::HashMap, error::Error, net::SocketAddr, sync::Arc};
-use tide::{http::Mime, Request, Response, StatusCode};
 use warp::Filter;
 
 use tokio::{fs::read_to_string, sync::RwLock};
 
+use bytes::Bytes;
 use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
 use rand::Rng;
 use serde::Serialize;
+use std::{collections::HashMap, error::Error, net::SocketAddr, sync::Arc};
 use ulid::Ulid;
 
 #[derive(Serialize)]
@@ -103,31 +104,49 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let index = warp::filters::method::get()
         .and(warp::path::end())
         .and(with_state())
-        .map(|state: Arc<State>| {
-            let template = state.templates.get("index.html").unwrap();
-            let globals: Object = Default::default();
-            let markup = template.render(&globals).unwrap();
-
-            http::Response::builder()
-                .content_type(mimes::html())
-                .body(markup)
+        .and_then(|state: Arc<State>| async move {
+            serve_template(&state, "index.html", mimes::html())
+                .await
+                .for_warp()
         });
 
     let style = warp::filters::method::get()
         .and(warp::path!("style.css"))
         .and(with_state())
-        .map(|state: Arc<State>| {
-            let template = state.templates.get("style.css").unwrap();
-            let globals: Object = Default::default();
-            let markup = template.render(&globals).unwrap();
+        .and_then(|state: Arc<State>| async move {
+            serve_template(&state, "style.css", mimes::css())
+                .await
+                .for_warp()
+        });
 
-            http::Response::builder()
-                .content_type(mimes::css())
-                .body(markup)
+    let js = warp::filters::method::get()
+        .and(warp::path!("main.js"))
+        .and(with_state())
+        .and_then(|state: Arc<State>| async move {
+            serve_template(&state, "main.js", mimes::js())
+                .await
+                .for_warp()
+        });
+
+    let upload = warp::filters::method::post()
+        .and(warp::path!("upload"))
+        .and(with_state())
+        .and(warp::filters::body::bytes())
+        .and_then(|state: Arc<State>, bytes: Bytes| async move {
+            handle_upload(&state, bytes).await.for_warp()
+        });
+
+    let images = warp::filters::method::get()
+        .and(warp::path!("images" / String))
+        .and(with_state())
+        .and_then(|name: String, state: Arc<State>| async move {
+            serve_image(&state, &name).await.for_warp()
         });
 
     let addr: SocketAddr = "127.0.0.1:3000".parse()?;
-    warp::serve(index.or(style)).run(addr).await;
+    warp::serve(index.or(style).or(js).or(upload).or(images))
+        .run(addr)
+        .await;
     Ok(())
 
     // let mut app = tide::with_state(state);
@@ -183,6 +202,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Ok(())
 }
 
+async fn handle_upload(state: &State, bytes: Bytes) -> Result<impl warp::Reply, Box<dyn Error>> {
+    let img = image::load_from_memory(&bytes[..])?;
+    let mut output: Vec<u8> = Default::default();
+    let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
+    encoder.encode_image(&img)?;
+
+    let id = Ulid::new();
+    let src = format!("/images/{}", id);
+
+    let img = Image {
+        mime: mimes::jpeg(),
+        contents: output,
+    };
+    {
+        let mut images = state.images.write().await;
+        images.insert(id, img);
+    }
+
+    let payload = serde_json::to_string(&UploadResponse { src: &src })?;
+    let res = http::Response::builder()
+        .content_type(mimes::json())
+        .body(payload);
+    Ok(res)
+}
+
 pub type TemplateMap = HashMap<String, Template>;
 
 #[derive(Debug, thiserror::Error)]
@@ -199,18 +243,24 @@ enum ImageError {
     InvalidID,
 }
 
-async fn serve_image(req: Request<State>) -> Result<Response, Box<dyn Error>> {
-    let id: Ulid = req.param("name").map_err(|_| ImageError::InvalidID)?;
+async fn serve_image(state: &State, name: &str) -> Result<impl warp::Reply, Box<dyn Error>> {
+    let id: Ulid = name.parse().map_err(|_| ImageError::InvalidID)?;
 
-    let images = req.state().images.read().await;
-    if let Some(img) = images.get(&id) {
-        let mut res = Response::new(200);
-        res.set_content_type(img.mime.clone());
-        res.set_body(&img.contents[..]);
-        Ok(res)
+    let images = state.images.read().await;
+    let res: Box<dyn warp::Reply> = if let Some(img) = images.get(&id) {
+        Box::new(
+            http::Response::builder()
+                .content_type(img.mime.clone())
+                .body(img.contents.clone()),
+        )
     } else {
-        Ok(Response::new(StatusCode::NotFound))
-    }
+        Box::new(
+            http::Response::builder()
+                .status(404)
+                .body("Image not found"),
+        )
+    };
+    Ok(res)
 }
 
 async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>> {
@@ -230,25 +280,37 @@ async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>
     Ok(map)
 }
 
-trait ForTide {
-    fn for_tide(self) -> Result<tide::Response, tide::Error>;
+
+trait ForWarp {
+    type Reply;
+
+    fn for_warp(self) -> Result<Self::Reply, warp::Rejection>;
 }
 
-impl ForTide for Result<tide::Response, Box<dyn Error>> {
-    fn for_tide(self) -> Result<Response, tide::Error> {
-        self.map_err(|e| {
-            log::error!("While serving template: {}", e);
-            tide::Error::from_str(
-                StatusCode::InternalServerError,
-                "Something went wrong, sorry!",
-            )
-        })
+impl<T> ForWarp for Result<T, Box<dyn Error>>
+where
+    T: warp::Reply + 'static,
+{
+    type Reply = Box<dyn warp::Reply>;
+
+    fn for_warp(self) -> Result<Self::Reply, warp::Rejection> {
+        let b: Box<dyn warp::Reply> = match self {
+            Ok(reply) => Box::new(reply),
+            Err(e) => {
+                log::error!("Error: {}", e);
+                let res = http::Response::builder()
+                    .status(500)
+                    .body("Something went wrong, apologies.");
+                Box::new(res)
+            }
+        };
+        Ok(b)
     }
 }
 
 mod mimes {
+    use http_types::Mime;
     use std::str::FromStr;
-    use tide::http::Mime;
 
     pub(crate) fn html() -> Mime {
         Mime::from_str("text/html; charset=utf-8").unwrap()
@@ -261,20 +323,27 @@ mod mimes {
     pub(crate) fn js() -> Mime {
         Mime::from_str("text/javascript; charset=utf-8").unwrap()
     }
+
+    pub(crate) fn json() -> Mime {
+        Mime::from_str("application/json").unwrap()
+    }
+
+    pub(crate) fn jpeg() -> Mime {
+        Mime::from_str("image/jpeg").unwrap()
+    }
 }
 
 async fn serve_template(
-    templates: &TemplateMap,
+    state: &State,
     name: &str,
     mime: Mime,
-) -> Result<Response, Box<dyn Error>> {
-    let template = templates
+) -> Result<impl warp::Reply, Box<dyn Error>> {
+    let template = state
+        .templates
         .get(name)
         .ok_or_else(|| TemplateError::TemplateNotFound(name.to_string()))?;
     let globals: Object = Default::default();
     let markup = template.render(&globals)?;
-    let mut res = Response::new(StatusCode::Ok);
-    res.set_content_type(mime);
-    res.set_body(markup);
-    Ok(res)
+
+    Ok(http::Response::builder().content_type(mime).body(markup))
 }
