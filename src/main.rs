@@ -148,62 +148,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .run(addr)
         .await;
     Ok(())
-
-    // let mut app = tide::with_state(state);
-
-    // app.at("/").get(|req: Request<State>| async move {
-    //     serve_template(&req.state().templates, "index.html", mimes::html())
-    //         .await
-    //         .for_tide()
-    // });
-
-    // app.at("/style.css").get(|req: Request<State>| async move {
-    //     serve_template(&req.state().templates, "style.css", mimes::css())
-    //         .await
-    //         .for_tide()
-    // });
-
-    // app.at("/main.js").get(|req: Request<State>| async move {
-    //     serve_template(&req.state().templates, "main.js", mimes::js())
-    //         .await
-    //         .for_tide()
-    // });
-
-    // app.at("/upload")
-    //     .post(|mut req: Request<State>| async move {
-    //         let body = req.body_bytes().await?;
-    //         let img = image::load_from_memory(&body[..])?.bitcrush()?;
-    //         let mut output: Vec<u8> = Default::default();
-    //         let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
-    //         encoder.encode_image(&img)?;
-
-    //         let id = Ulid::new();
-    //         let src = format!("/images/{}", id);
-
-    //         let img = Image {
-    //             mime: tide::http::mime::JPEG,
-    //             contents: output,
-    //         };
-    //         {
-    //             let mut images = req.state().images.write().await;
-    //             images.insert(id, img);
-    //         }
-
-    //         let mut res = Response::new(StatusCode::Ok);
-    //         res.set_content_type(tide::http::mime::JSON);
-    //         res.set_body(tide::Body::from_json(&UploadResponse { src: &src })?);
-    //         Ok(res)
-    //     });
-
-    // app.at("/images/:name")
-    //     .get(|req: Request<State>| async { serve_image(req).await.for_tide() });
-
-    // app.listen("localhost:3000").await?;
-    // Ok(())
 }
 
 async fn handle_upload(state: &State, bytes: Bytes) -> Result<impl warp::Reply, Box<dyn Error>> {
-    let img = image::load_from_memory(&bytes[..])?;
+    let img = image::load_from_memory(&bytes[..])?.bitcrush()?;
     let mut output: Vec<u8> = Default::default();
     let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
     encoder.encode_image(&img)?;
@@ -279,7 +227,6 @@ async fn compile_templates(paths: &[&str]) -> Result<TemplateMap, Box<dyn Error>
     }
     Ok(map)
 }
-
 
 trait ForWarp {
     type Reply;
