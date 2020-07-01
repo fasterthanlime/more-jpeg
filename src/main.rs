@@ -37,9 +37,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     app.at("/main.js").get(|req: Request<State>| async move {
-        serve_template(&req.state().templates, "style.js", mimes::js())
+        serve_template(&req.state().templates, "main.js", mimes::js())
             .await
             .for_tide()
+    });
+
+    app.at("/upload").post(|_req: Request<State>| async move {
+        let mut res = Response::new(StatusCode::Ok);
+        res.set_body(r#"
+        {
+            "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Lion_d%27Afrique.jpg/800px-Lion_d%27Afrique.jpg"
+        }
+        "#);
+        Ok(res)
     });
 
     app.listen("localhost:3000").await?;
