@@ -4,6 +4,7 @@ use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
 
 use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
+use rand::Rng;
 use serde::Serialize;
 use ulid::Ulid;
 
@@ -22,7 +23,7 @@ struct State {
     images: RwLock<HashMap<Ulid, Image>>,
 }
 
-pub const JPEG_QUALITY: u8 = 35;
+pub const JPEG_QUALITY: u8 = 10;
 
 trait BitCrush: Sized {
     type Error;
@@ -36,22 +37,22 @@ impl BitCrush for DynamicImage {
     fn bitcrush(self) -> Result<Self, Self::Error> {
         let mut current = self;
         let (orig_w, orig_h) = current.dimensions();
-        use rand::Rng;
         let mut rng = rand::thread_rng();
-        let (trans_w, trans_h) = (
-            orig_w + rng.gen_range(orig_w / 2, orig_w),
-            orig_h + rng.gen_range(orig_h / 2, orig_h),
+        let (temp_w, temp_h) = (
+            rng.gen_range(orig_w / 2, orig_w * 2),
+            rng.gen_range(orig_h / 2, orig_h * 2),
         );
 
         let mut out: Vec<u8> = Default::default();
         for _ in 0..2 {
             current = current
-                .resize_exact(trans_w, trans_h, FilterType::Nearest)
+                .resize_exact(temp_w, temp_h, FilterType::Nearest)
                 .rotate180()
                 .huerotate(180);
             out.clear();
             {
-                let mut encoder = JPEGEncoder::new_with_quality(&mut out, JPEG_QUALITY);
+                let mut encoder =
+                    JPEGEncoder::new_with_quality(&mut out, JPEG_QUALITY + rng.gen_range(0, 20));
                 encoder.encode_image(&current)?;
             }
             current = image::load_from_memory_with_format(&out[..], image::ImageFormat::Jpeg)?;
