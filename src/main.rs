@@ -3,6 +3,13 @@ use liquid::{Object, Template};
 use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
 
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct UploadResponse<'a> {
+    src: &'a str,
+}
+
 struct State {
     templates: TemplateMap,
 }
@@ -44,18 +51,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     app.at("/upload")
         .post(|mut req: Request<State>| async move {
-            let mut res = Response::new(StatusCode::Ok);
             let body = req.body_bytes().await?;
-            let s = base64::encode(body);
-            let src = format!("data:image/jpeg;base64,{}", s);
-            res.set_body(format!(
-                r#"
-        {{
-            "src": {:?}
-        }}
-        "#,
-                src
-            ));
+            let payload = base64::encode(body);
+            let src = format!("data:image/jpeg;base64,{}", payload);
+
+            let mut res = Response::new(StatusCode::Ok);
+            res.set_content_type(tide::http::mime::JSON);
+            res.set_body(tide::Body::from_json(&UploadResponse { src: &src })?);
             Ok(res)
         });
 
