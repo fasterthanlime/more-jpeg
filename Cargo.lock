@@ -800,6 +800,7 @@ name = "more-jpeg"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "base64",
  "liquid",
  "log",
  "pretty_env_logger",

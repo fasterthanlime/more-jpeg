@@ -23,7 +23,7 @@
 
                 fetch("/upload", {
                     method: "post",
-                    body: item.stream(),
+                    body: item,
                 }).then((res) => {
                     if (res.status !== 200) {
                         throw new Error(`HTTP ${res.status}`);
