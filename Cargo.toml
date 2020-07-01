@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Amos Wenger <amoswenger@gmail.com>"]
 edition = "2018"
 
+[profile.dev.package."*"]
+opt-level = 2
+
 [dependencies]
 tide = "0.11.0"
 async-std = { version = "1.6.2", features = ["attributes"] }
@@ -11,7 +14,7 @@ liquid = "0.20.1"
 log = "0.4.8"
 pretty_env_logger = "0.4.0"
 thiserror = "1.0.20"
-base64 = "0.12.3"
 serde = "1.0.114"
 serde_json = "1.0.56"
 image = "0.23.6"
+ulid = "0.4.0"
