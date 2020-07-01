@@ -1,7 +1,9 @@
-use async_std::{fs::read_to_string, sync::RwLock};
 use liquid::{Object, Template};
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, net::SocketAddr};
 use tide::{http::Mime, Request, Response, StatusCode};
+use warp::Filter;
+
+use tokio::{fs::read_to_string, sync::RwLock};
 
 use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
 use rand::Rng;
@@ -62,7 +64,17 @@ impl BitCrush for DynamicImage {
     }
 }
 
-#[async_std::main]
+trait MimeAware {
+    fn content_type(self, mime: Mime) -> Self;
+}
+
+impl MimeAware for http::response::Builder {
+    fn content_type(self, mime: Mime) -> Self {
+        self.header("content-type", mime.to_string())
+    }
+}
+
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     if std::env::var_os("RUST_LOG").is_none() {
         std::env::set_var("RUST_LOG", "info");
@@ -81,57 +93,67 @@ async fn main() -> Result<(), Box<dyn Error>> {
         templates,
         images: Default::default(),
     };
-    let mut app = tide::with_state(state);
 
-    app.at("/").get(|req: Request<State>| async move {
-        serve_template(&req.state().templates, "index.html", mimes::html())
-            .await
-            .for_tide()
+    let index = warp::path::end().and(warp::filters::method::get()).map(|| {
+        http::Response::builder()
+            .content_type(mimes::html())
+            .body("<html><body><p>I do <em>not</em> miss XHTML.</p></body></html>")
     });
-
-    app.at("/style.css").get(|req: Request<State>| async move {
-        serve_template(&req.state().templates, "style.css", mimes::css())
-            .await
-            .for_tide()
-    });
-
-    app.at("/main.js").get(|req: Request<State>| async move {
-        serve_template(&req.state().templates, "main.js", mimes::js())
-            .await
-            .for_tide()
-    });
-
-    app.at("/upload")
-        .post(|mut req: Request<State>| async move {
-            let body = req.body_bytes().await?;
-            let img = image::load_from_memory(&body[..])?.bitcrush()?;
-            let mut output: Vec<u8> = Default::default();
-            let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
-            encoder.encode_image(&img)?;
-
-            let id = Ulid::new();
-            let src = format!("/images/{}", id);
-
-            let img = Image {
-                mime: tide::http::mime::JPEG,
-                contents: output,
-            };
-            {
-                let mut images = req.state().images.write().await;
-                images.insert(id, img);
-            }
-
-            let mut res = Response::new(StatusCode::Ok);
-            res.set_content_type(tide::http::mime::JSON);
-            res.set_body(tide::Body::from_json(&UploadResponse { src: &src })?);
-            Ok(res)
-        });
-
-    app.at("/images/:name")
-        .get(|req: Request<State>| async { serve_image(req).await.for_tide() });
-
-    app.listen("localhost:3000").await?;
+    let addr: SocketAddr = "127.0.0.1:3000".parse()?;
+    warp::serve(index).run(addr).await;
     Ok(())
+
+    // let mut app = tide::with_state(state);
+
+    // app.at("/").get(|req: Request<State>| async move {
+    //     serve_template(&req.state().templates, "index.html", mimes::html())
+    //         .await
+    //         .for_tide()
+    // });
+
+    // app.at("/style.css").get(|req: Request<State>| async move {
+    //     serve_template(&req.state().templates, "style.css", mimes::css())
+    //         .await
+    //         .for_tide()
+    // });
+
+    // app.at("/main.js").get(|req: Request<State>| async move {
+    //     serve_template(&req.state().templates, "main.js", mimes::js())
+    //         .await
+    //         .for_tide()
+    // });
+
+    // app.at("/upload")
+    //     .post(|mut req: Request<State>| async move {
+    //         let body = req.body_bytes().await?;
+    //         let img = image::load_from_memory(&body[..])?.bitcrush()?;
+    //         let mut output: Vec<u8> = Default::default();
+    //         let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
+    //         encoder.encode_image(&img)?;
+
+    //         let id = Ulid::new();
+    //         let src = format!("/images/{}", id);
+
+    //         let img = Image {
+    //             mime: tide::http::mime::JPEG,
+    //             contents: output,
+    //         };
+    //         {
+    //             let mut images = req.state().images.write().await;
+    //             images.insert(id, img);
+    //         }
+
+    //         let mut res = Response::new(StatusCode::Ok);
+    //         res.set_content_type(tide::http::mime::JSON);
+    //         res.set_body(tide::Body::from_json(&UploadResponse { src: &src })?);
+    //         Ok(res)
+    //     });
+
+    // app.at("/images/:name")
+    //     .get(|req: Request<State>| async { serve_image(req).await.for_tide() });
+
+    // app.listen("localhost:3000").await?;
+    // Ok(())
 }
 
 pub type TemplateMap = HashMap<String, Template>;
