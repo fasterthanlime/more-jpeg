@@ -3,6 +3,7 @@ use liquid::{Object, Template};
 use std::{collections::HashMap, error::Error};
 use tide::{http::Mime, Request, Response, StatusCode};
 
+use image::{imageops::FilterType, jpeg::JPEGEncoder, DynamicImage, GenericImageView};
 use serde::Serialize;
 use ulid::Ulid;
 
@@ -19,6 +20,40 @@ struct Image {
 struct State {
     templates: TemplateMap,
     images: RwLock<HashMap<Ulid, Image>>,
+}
+
+pub const JPEG_QUALITY: u8 = 25;
+
+trait BitCrush: Sized {
+    type Error;
+
+    fn bitcrush(self) -> Result<Self, Self::Error>;
+}
+
+impl BitCrush for DynamicImage {
+    type Error = image::ImageError;
+
+    fn bitcrush(self) -> Result<Self, Self::Error> {
+        let mut current = self;
+        let (orig_w, orig_h) = current.dimensions();
+        let (trans_w, trans_h) = (orig_w + 10, orig_h + 10);
+
+        let mut out: Vec<u8> = Default::default();
+        for _ in 0..4 {
+            current = current
+                .resize_exact(trans_w, trans_h, FilterType::Nearest)
+                .rotate90();
+            out.clear();
+            {
+                let mut encoder = JPEGEncoder::new_with_quality(&mut out, JPEG_QUALITY);
+                encoder.encode_image(&current)?;
+            }
+            current = image::load_from_memory_with_format(&out[..], image::ImageFormat::Jpeg)?
+                .resize_exact(orig_w, orig_h, FilterType::Triangle)
+                .brighten(2);
+        }
+        Ok(current)
+    }
 }
 
 #[async_std::main]
@@ -63,10 +98,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     app.at("/upload")
         .post(|mut req: Request<State>| async move {
             let body = req.body_bytes().await?;
-            let img = image::load_from_memory(&body[..])?;
+            let img = image::load_from_memory(&body[..])?.bitcrush()?;
             let mut output: Vec<u8> = Default::default();
-            use image::jpeg::JPEGEncoder;
-            let mut encoder = JPEGEncoder::new_with_quality(&mut output, 10);
+            let mut encoder = JPEGEncoder::new_with_quality(&mut output, JPEG_QUALITY);
             encoder.encode_image(&img)?;
 
             let id = Ulid::new();

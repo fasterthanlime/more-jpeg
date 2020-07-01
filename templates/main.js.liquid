@@ -2,45 +2,92 @@
 "use strict";
 
 (function () {
-    document.addEventListener("DOMContentLoaded", () => {
-        /** @type {HTMLDivElement} */
-        let dropZone = document.querySelector("#drop-zone");
-        dropZone.addEventListener("dragover", (ev) => {
-            ev.preventDefault();
-            ev.dataTransfer.dropEffect = "move";
-            dropZone.classList.add("over");
-        });
-        dropZone.addEventListener("dragleave", (ev) => {
-            dropZone.classList.remove("over");
-        });
-        dropZone.addEventListener("drop", (ev) => {
-            ev.preventDefault();
-            dropZone.classList.remove("over");
+  document.addEventListener("DOMContentLoaded", () => {
+    /** @type {HTMLDivElement} */
+    let dropZone = document.querySelector("#drop-zone");
+    /** @type {HTMLParagraphElement} */
+    let status = document.querySelector("#status");
+    /** @type {HTMLSpanElement} */
+    let instructions = document.querySelector("#instructions");
+    let spinner = document.createElement("div");
+    spinner.classList.add("spinner");
 
-            if (ev.dataTransfer.items && ev.dataTransfer.items.length > 0) {
-                let item = ev.dataTransfer.items[0].getAsFile();
-                console.log("dropped file ", item.name);
+    /**
+     * @param {Error} e
+     */
+    let showErrorDialog = (e) => {
+      alert(`Something went wrong!\n\n${e}\n\n${e.stack}`);
+    };
 
-                fetch("/upload", {
-                    method: "post",
-                    body: item,
-                }).then((res) => {
-                    if (res.status !== 200) {
-                        throw new Error(`HTTP ${res.status}`);
-                    }
+    /** @param {BodyInit} body */
+    let bitcrush = (body) => {
+      dropZone.appendChild(spinner);
 
-                    return res.json();
-                }).then((payload) => {
-                    /** @type {HTMLImageElement} */
-                    var img = document.createElement("img");
-                    img.src = payload.src;
-                    img.classList.add("result");
-                    dropZone.replaceWith(img);
-                }).catch((e) => {
-                    alert(`Something went wrong!\n\n${e}`);
-                });
-            }
-        });
-        console.log("drop zone", dropZone);
+      fetch("/upload", {
+        method: "post",
+        body,
+      })
+        .then((res) => {
+          if (res.status !== 200) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+
+          return res.json();
+        })
+        .then((payload) => {
+          /** @type {HTMLImageElement} */
+          var img = document.createElement("img");
+          img.src = payload.src;
+          img.addEventListener("load", () => {
+            img.decode().then(() => {
+              img.addEventListener("click", onImageClick);
+              status.innerText = "Click image to add more JPEG";
+
+              dropZone.innerHTML = "";
+              dropZone.appendChild(img);
+            });
+          });
+        })
+        .catch(showErrorDialog);
+    };
+
+    /**
+     * @param {MouseEvent} ev
+     */
+    let onImageClick = (ev) => {
+      /** @type {HTMLImageElement} */
+      // @ts-ignore
+      let img = ev.currentTarget;
+      if (img.tagName.toLowerCase() !== "img") {
+        return;
+      }
+
+      console.log("src is", img.src);
+      fetch(img.src)
+        .then((body) => body.blob())
+        .then(bitcrush)
+        .catch(showErrorDialog);
+    };
+
+    dropZone.addEventListener("dragover", (ev) => {
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      dropZone.classList.add("over");
     });
+
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("over");
+    });
+
+    dropZone.addEventListener("drop", (ev) => {
+      ev.preventDefault();
+      dropZone.classList.remove("over");
+      instructions.remove();
+
+      if (ev.dataTransfer.items && ev.dataTransfer.items.length > 0) {
+        let item = ev.dataTransfer.items[0].getAsFile();
+        bitcrush(item);
+      }
+    });
+  });
 })();
